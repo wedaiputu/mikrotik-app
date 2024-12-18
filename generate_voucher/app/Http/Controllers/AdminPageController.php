@@ -7,29 +7,76 @@ use Illuminate\Http\Request;
 
 class AdminPageController extends Controller
 {
-    public function index(){
+    public function showLoginForm()
+    {
+        // Display the login form
+        return view('login');
+    }
 
-    //     $ip = '192.168.30.1';
-    //     $user = 'test';
-    //     $pass = 'test';
-    //     $API = new RouterosAPI();
-    //     $API -> debug(false);
+    public function login(Request $request)
+    {
+        // Validate the input data
+        $request->validate([
+            'ip' => 'required|ip',
+            'username' => 'required|string',
+            'password' => 'required|string',
+        ]);
 
-    //     if($API->connect($ip, $user, $pass)){
-    //         $identitas = $API->comm('/system/identity/print');
-    //         // $router_model = $API->comm('/system/routerboard/print');
-    //     } else {
-    //         return 'koneksi gaagal';
-    //     }
-    //     // dd($router_model);
-    //     // dd($identitas);
+        // Get input data
+        $ip = $request->input('ip');
+        $user = $request->input('username');
+        $pass = $request->input('password');
 
-    //     $data = [
-    //         'identitas' => $identitas[0]['name'],
-    //         // 'router_model' => $router_model[1],
+        // Initialize RouterosAPI
+        $API = new RouterosAPI();
+        $API->debug(false);
+
+        // Try to connect to the Mikrotik router
+        if ($API->connect($ip, $user, $pass)) {
+            // Fetch router identity
+            $identitas = $API->comm('/system/identity/print');
             
-    //     ];
-    //     // dd($data);
-        return view('dashboard'); 
+            // Store credentials and identity in the session
+            session([
+                'ip' => $ip,
+                'username' => $user,
+                'password' => $pass,
+                'router_identity' => $identitas[0]['name'] ?? 'Unknown Router',
+            ]);
+
+            // Redirect to the generate voucher page
+            return redirect()->route('generate.voucher');
+        } else {
+            // Return an error message if the connection fails
+            return redirect()->route('login')->withErrors([
+                'login_failed' => 'Connection to Mikrotik failed. Please check your credentials.',
+            ]);
+        }
+    }
+
+    public function dashboard()
+    {
+        // Check if session data exists
+        if (!session()->has(['ip', 'username', 'password', 'router_identity'])) {
+            return redirect()->route('login')->withErrors([
+                'session_expired' => 'Your session has expired. Please log in again.',
+            ]);
+        }
+
+        // Pass session data to the dashboard view
+        $data = [
+            'router_identity' => session('router_identity'),
+        ];
+
+        return view('dashboard', $data);
+    }
+
+    public function logout()
+    {
+        // Clear session data
+        session()->flush();
+
+        // Redirect to login page
+        return redirect()->route('login');
     }
 }

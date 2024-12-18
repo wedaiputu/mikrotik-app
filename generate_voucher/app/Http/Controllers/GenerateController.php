@@ -7,51 +7,70 @@ use Illuminate\Http\Request;
 
 class GenerateController extends Controller
 {
-    public function generate(Request $request){
-        $ip = '192.168.30.1';
-        $user = 'test';
-        $pass = 'test';
+    public function generate(Request $request)
+    {
+        // Validate the input data
+        $request->validate([
+            'quantity' => 'required|integer|min:1',
+            'price' => 'required|numeric|min:1',
+            'uptime_limit' => 'required|integer|min:1',
+        ]);
+
+        // Check if session contains router credentials
+        if (!session()->has(['ip', 'username', 'password'])) {
+            return redirect()->route('login')->withErrors(['session_expired' => 'Your session has expired. Please log in again.']);
+        }
+
+        // Get router credentials from session
+        $ip = session('ip');
+        $user = session('username');
+        $pass = session('password');
+
+        // Initialize RouterosAPI
         $API = new RouterosAPI();
         $API->debug(false);
 
         if ($API->connect($ip, $user, $pass)) {
-            
-            $username = 'user_' . rand(1000, 9999); 
-            $password = rand(10000, 99999);        
+            $quantity = $request->input('quantity');
+            $price = $request->input('price');
+            $uptimeLimit = $request->input('uptime_limit');
 
-            
-            $response = $API->comm('/ip/hotspot/user/add', [
-                'name' => $username,
-                'password' => $password,
-                'profile' => 'default', 
-            ]);
+            $vouchers = [];
 
-            
-            $API->disconnect();
+            for ($i = 0; $i < $quantity; $i++) {
+                $username = substr(str_shuffle('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 5);
+                $password = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 5);
 
-            if (isset($response['!trap'])) {
-                
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Failed to create voucher',
-                    'error' => $response['!trap']
+                $response = $API->comm('/ip/hotspot/user/add', [
+                    'name' => $username,
+                    'password' => $password,
+                    'profile' => 'default',
+                    'limit-uptime' => "{$uptimeLimit}m",
                 ]);
-            }
 
-            //berhasil
-            return response()->json([
-                'success' => true,
-                'message' => 'Voucher generated successfully',
-                'voucher' => [
+                if (isset($response['!trap'])) {
+                    continue; // Skip failed voucher
+                }
+
+                $vouchers[] = [
                     'username' => $username,
                     'password' => $password,
-                ]
+                    'price' => $price,
+                    'uptime_limit' => "{$uptimeLimit} minutes",
+                ];
+            }
+
+            $API->disconnect();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Vouchers generated successfully',
+                'vouchers' => $vouchers,
             ]);
         } else {
-            //failed
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to connect to MikroTik router',
+                'message' => 'Failed to connect to Mikrotik router',
             ]);
         }
     }
